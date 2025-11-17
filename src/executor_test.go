@@ -27,7 +27,7 @@ func TestExecutorConfig(t *testing.T) {
 	}
 }
 
-func TestExecuteInBackground_InvalidCommand(t *testing.T) {
+func TestExecuteSynchronously_InvalidCommand(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := tmpDir + "/prompt.md"
 	err := os.WriteFile(tmpFile, []byte("test"), 0o600)
@@ -40,12 +40,13 @@ func TestExecuteInBackground_InvalidCommand(t *testing.T) {
 		TempPromptFilePath: tmpFile,
 		LogFile:            tmpDir + "/test.log",
 		HookInfo:           "Test Hook",
+		SuggestionFile:     tmpDir + "/suggestion.md",
 	}
 
-	// cmd.Start()はエラーにならないことが多い
-	err = ExecuteInBackground(config)
-	// エラーが返らなくてもOK（非同期実行のため）
-	if err != nil {
-		t.Logf("ExecuteInBackground() returned error: %v", err)
+	// cmd.Run()は存在しないディレクトリでエラーを返す
+	err = ExecuteSynchronously(config)
+	// エラーが返ることを期待（同期実行のため）
+	if err == nil {
+		t.Errorf("ExecuteSynchronously() expected error for nonexistent directory, got nil")
 	}
 }

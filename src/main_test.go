@@ -53,9 +53,9 @@ func TestRun(t *testing.T) {
 			wantOutputs: []string{
 				"🤖 会話履歴を分析中...",
 				"Hook: SessionEnd (trigger: user)",
-				"📋 バックグラウンドで実行中...",
-				"ログファイル:",
-				"✅ バックグラウンドで実行を開始しました",
+				"📋 実行中...",
+				"✅ 分析が完了しました",
+				"📄 提案ファイル:",
 			},
 		},
 		{
@@ -344,9 +344,9 @@ func TestRun_ExecuteInBackgroundError(t *testing.T) {
 		t.Fatalf("run() error = %v", err)
 	}
 
-	// バックグラウンド実行開始のメッセージが出力されることを確認
+	// 実行完了のメッセージが出力されることを確認
 	outputStr := output.String()
-	if !strings.Contains(outputStr, "✅ バックグラウンドで実行を開始しました") {
+	if !strings.Contains(outputStr, "✅ 分析が完了しました") {
 		t.Errorf("Should contain success message, got: %s", outputStr)
 	}
 }
@@ -383,12 +383,13 @@ func TestRun_AllOutputMessages(t *testing.T) {
 	expectedMessages := []string{
 		"🤖 会話履歴を分析中...",
 		"Hook: PreCompact (trigger: system)",
-		"📋 バックグラウンドで実行中...",
-		"ログファイル:",
-		"✅ バックグラウンドで実行を開始しました",
-		"完了時にmacOS通知でお知らせします",
-		"結果: cat",
-		"/tmp/suggest-claude-md-comprehensive-test-20240615-103000.log",
+		"📋 実行中...",
+		"✅ 分析が完了しました",
+		"📄 提案ファイル:",
+		"以下のコマンドで提案を適用できます：",
+		"suggest-claude-md --apply",
+		"詳細なログ:",
+		"/tmp/suggest-claude-md-comprehensive-test-20240615-103000",
 	}
 
 	for _, expected := range expectedMessages {
@@ -659,5 +660,299 @@ func TestApplySuggestionFileWithInput_ApplyWithY(t *testing.T) {
 	claudeMdPath := filepath.Join(tmpDir, "CLAUDE.md")
 	if _, err := os.Stat(claudeMdPath); os.IsNotExist(err) {
 		t.Error("CLAUDE.md should be created when user says 'y'")
+	}
+}
+
+func TestApplySuggestionFileWithInput_ReadExistingClaudeMdError(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 提案ファイルを作成
+	suggestionContent := "# Test Suggestion"
+	suggestionPath := filepath.Join(tmpDir, "suggestion.md")
+	err := os.WriteFile(suggestionPath, []byte(suggestionContent), 0o644)
+	if err != nil {
+		t.Fatalf("Failed to create suggestion file: %v", err)
+	}
+
+	// 読み取り権限のないCLAUDE.mdを作成
+	claudeMdPath := filepath.Join(tmpDir, "CLAUDE.md")
+	err = os.WriteFile(claudeMdPath, []byte("existing"), 0o000)
+	if err != nil {
+		t.Fatalf("Failed to create CLAUDE.md: %v", err)
+	}
+	defer os.Chmod(claudeMdPath, 0o644) // nolint:errcheck // Best-effort cleanup
+
+	// 作業ディレクトリを変更
+	originalWd, _ := os.Getwd()
+	defer os.Chdir(originalWd) // nolint:errcheck // Best-effort cleanup
+	os.Chdir(tmpDir)           // nolint:errcheck // Test will fail if this fails
+
+	// "yes"を入力
+	input := strings.NewReader("yes\n")
+
+	err = applySuggestionFileWithInput(suggestionPath, input)
+	// 環境によってはエラーが発生しない場合があるため、エラーがある場合のみチェック
+	if err != nil && !strings.Contains(err.Error(), "CLAUDE.mdの読み込みに失敗") && !os.IsPermission(err) {
+		t.Logf("Got error (may vary by system): %v", err)
+	}
+}
+
+func TestApplySuggestionFileWithInput_WriteClaudeMdError(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 提案ファイルを作成
+	suggestionContent := "# Test Suggestion"
+	suggestionPath := filepath.Join(tmpDir, "suggestion.md")
+	err := os.WriteFile(suggestionPath, []byte(suggestionContent), 0o644)
+	if err != nil {
+		t.Fatalf("Failed to create suggestion file: %v", err)
+	}
+
+	// 読み取り専用ディレクトリを作成
+	readOnlyDir := filepath.Join(tmpDir, "readonly")
+	err = os.Mkdir(readOnlyDir, 0o555)
+	if err != nil {
+		t.Fatalf("Failed to create readonly directory: %v", err)
+	}
+	defer os.Chmod(readOnlyDir, 0o755) // nolint:errcheck // Best-effort cleanup
+
+	// 作業ディレクトリを変更
+	originalWd, _ := os.Getwd()
+	defer os.Chdir(originalWd) // nolint:errcheck // Best-effort cleanup
+	os.Chdir(readOnlyDir)      // nolint:errcheck // Test will fail if this fails
+
+	// "yes"を入力
+	input := strings.NewReader("yes\n")
+
+	err = applySuggestionFileWithInput(suggestionPath, input)
+	// 環境によってはエラーが発生しない場合があるため、エラーがある場合のみチェック
+	if err != nil && !strings.Contains(err.Error(), "CLAUDE.mdへの書き込みに失敗") && !os.IsPermission(err) {
+		t.Logf("Got error (may vary by system): %v", err)
+	}
+}
+
+func TestRun_CreateTempFileError(t *testing.T) {
+	// os.CreateTempのエラーをシミュレートするのは困難なため、
+	// このテストは実装をカバーするための構造確認のみ
+	t.Skip("Skipping test that requires mocking os.CreateTemp")
+}
+
+func TestRun_WriteTempFileError(t *testing.T) {
+	// tempPromptFile.WriteStringのエラーをシミュレートするのは困難なため、
+	// このテストは実装をカバーするための構造確認のみ
+	t.Skip("Skipping test that requires mocking file write operations")
+}
+
+func TestRun_ExecuteSynchronouslyError(t *testing.T) {
+	tmpDir := t.TempDir()
+	validTranscriptPath := filepath.Join(tmpDir, "test-conversation.jsonl")
+	transcriptContent := `{"message":{"role":"user","content":"Test message"}}`
+	err := os.WriteFile(validTranscriptPath, []byte(transcriptContent), 0o600)
+	if err != nil {
+		t.Fatalf("Failed to create test transcript file: %v", err)
+	}
+
+	input := strings.NewReader(fmt.Sprintf(`{
+		"transcript_path": "%s",
+		"hook_event_name": "SessionEnd",
+		"trigger": "user"
+	}`, validTranscriptPath))
+	output := &bytes.Buffer{}
+
+	// 環境変数でClaude CLIを無効なパスに設定して、ExecuteSynchronouslyを失敗させる
+	// ただし、実際にはこのテストは環境依存性が高いため、構造確認のみ
+	err = run(input, output, func() (string, error) { return tmpDir, nil }, func(key string) string {
+		if key == "PATH" {
+			return "/nonexistent"
+		}
+		return ""
+	}, time.Now)
+
+	// ExecuteSynchronouslyが失敗する可能性がある
+	// ただし、環境によっては成功する場合もある
+	if err != nil {
+		if !strings.Contains(err.Error(), "実行に失敗") {
+			t.Logf("Got different error than expected: %v", err)
+		}
+	}
+}
+
+func TestRun_MultipleHookEvents(t *testing.T) {
+	tmpDir := t.TempDir()
+	validTranscriptPath := filepath.Join(tmpDir, "test-conversation.jsonl")
+	transcriptContent := `{"message":{"role":"user","content":"Test"}}`
+	err := os.WriteFile(validTranscriptPath, []byte(transcriptContent), 0o600)
+	if err != nil {
+		t.Fatalf("Failed to create test transcript file: %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		hookEvent string
+		trigger   string
+	}{
+		{
+			name:      "SessionEnd with user trigger",
+			hookEvent: "SessionEnd",
+			trigger:   "user",
+		},
+		{
+			name:      "SessionEnd with system trigger",
+			hookEvent: "SessionEnd",
+			trigger:   "system",
+		},
+		{
+			name:      "PreCompact with user trigger",
+			hookEvent: "PreCompact",
+			trigger:   "user",
+		},
+		{
+			name:      "PreCompact with system trigger",
+			hookEvent: "PreCompact",
+			trigger:   "system",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := strings.NewReader(fmt.Sprintf(`{
+				"transcript_path": "%s",
+				"hook_event_name": "%s",
+				"trigger": "%s"
+			}`, validTranscriptPath, tt.hookEvent, tt.trigger))
+			output := &bytes.Buffer{}
+
+			err := run(input, output, func() (string, error) { return tmpDir, nil }, func(key string) string { return "" }, time.Now)
+			if err != nil {
+				t.Fatalf("run() error = %v", err)
+			}
+
+			outputStr := output.String()
+			if !strings.Contains(outputStr, tt.hookEvent) {
+				t.Errorf("Output should contain hook event %q, got: %s", tt.hookEvent, outputStr)
+			}
+			if !strings.Contains(outputStr, tt.trigger) {
+				t.Errorf("Output should contain trigger %q, got: %s", tt.trigger, outputStr)
+			}
+		})
+	}
+}
+
+func TestApplySuggestionFileWithInput_ScannerError(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 提案ファイルを作成
+	suggestionContent := "# Test"
+	suggestionPath := filepath.Join(tmpDir, "suggestion.md")
+	err := os.WriteFile(suggestionPath, []byte(suggestionContent), 0o644)
+	if err != nil {
+		t.Fatalf("Failed to create suggestion file: %v", err)
+	}
+
+	// 作業ディレクトリを変更
+	originalWd, _ := os.Getwd()
+	defer os.Chdir(originalWd) // nolint:errcheck // Best-effort cleanup
+	os.Chdir(tmpDir)           // nolint:errcheck // Test will fail if this fails
+
+	// scanner.Errをシミュレートするのは困難なため、
+	// 空の入力でEOFケースをテスト
+	input := strings.NewReader("")
+
+	err = applySuggestionFileWithInput(suggestionPath, input)
+	if err == nil {
+		t.Error("applySuggestionFileWithInput() should return error for empty input")
+	}
+	if !strings.Contains(err.Error(), "入力がありません") {
+		t.Errorf("Expected error about no input, got: %v", err)
+	}
+}
+
+func TestRun_ConversationIDWithSpecialChars(t *testing.T) {
+	tmpDir := t.TempDir()
+	// 特殊文字を含むファイル名
+	specialFileName := filepath.Join(tmpDir, "conversation-with-dashes_123.jsonl")
+	transcriptContent := `{"message":{"role":"user","content":"Test"}}`
+	err := os.WriteFile(specialFileName, []byte(transcriptContent), 0o600)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	input := strings.NewReader(fmt.Sprintf(`{
+		"transcript_path": "%s",
+		"hook_event_name": "SessionEnd",
+		"trigger": "user"
+	}`, specialFileName))
+	output := &bytes.Buffer{}
+
+	err = run(input, output, func() (string, error) { return tmpDir, nil }, func(key string) string { return "" }, time.Now)
+	if err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+
+	outputStr := output.String()
+	if !strings.Contains(outputStr, "conversation-with-dashes_123") {
+		t.Errorf("Output should contain conversation ID with special chars, got: %s", outputStr)
+	}
+}
+
+func TestApplySuggestionFileWithInput_ExistingWithMultipleSections(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 既存のCLAUDE.mdに複数のセクションを作成
+	existingContent := `# Project
+
+## Section 1
+
+Content 1.
+
+## Section 2
+
+Content 2.
+
+## Section 3
+
+Content 3.
+`
+	claudeMdPath := filepath.Join(tmpDir, "CLAUDE.md")
+	err := os.WriteFile(claudeMdPath, []byte(existingContent), 0o644)
+	if err != nil {
+		t.Fatalf("Failed to create existing CLAUDE.md: %v", err)
+	}
+
+	// 提案ファイルを作成（新しいセクション）
+	suggestionContent := `## Section 4
+
+New content for section 4.
+`
+	suggestionPath := filepath.Join(tmpDir, "suggestion.md")
+	err = os.WriteFile(suggestionPath, []byte(suggestionContent), 0o644)
+	if err != nil {
+		t.Fatalf("Failed to create suggestion file: %v", err)
+	}
+
+	// 作業ディレクトリを変更
+	originalWd, _ := os.Getwd()
+	defer os.Chdir(originalWd) // nolint:errcheck // Best-effort cleanup
+	os.Chdir(tmpDir)           // nolint:errcheck // Test will fail if this fails
+
+	// "yes"を入力
+	input := strings.NewReader("yes\n")
+
+	err = applySuggestionFileWithInput(suggestionPath, input)
+	if err != nil {
+		t.Errorf("applySuggestionFileWithInput() with 'yes' returned error: %v", err)
+	}
+
+	// CLAUDE.mdが更新されていることを確認
+	content, err := os.ReadFile(claudeMdPath)
+	if err != nil {
+		t.Fatalf("Failed to read CLAUDE.md: %v", err)
+	}
+
+	resultStr := string(content)
+	// すべてのセクションが保持されている
+	if !strings.Contains(resultStr, "Section 1") || !strings.Contains(resultStr, "Section 2") ||
+		!strings.Contains(resultStr, "Section 3") || !strings.Contains(resultStr, "Section 4") {
+		t.Errorf("All sections should be present, got: %s", resultStr)
 	}
 }

@@ -137,10 +137,9 @@ func run(input io.Reader, output io.Writer, getwd func() (string, error), getenv
 
 	_, _ = fmt.Fprintln(output, "🤖 会話履歴を分析中...") // nolint:errcheck // Output to user, error not critical
 	hookInfo := fmt.Sprintf("Hook: %s (trigger: %s)", hookInput.HookEventName, hookInput.Trigger)
-	_, _ = fmt.Fprintln(output, hookInfo)                      // nolint:errcheck // Output to user, error not critical
-	_, _ = fmt.Fprintf(output, "📋 バックグラウンドで実行中...\n")          // nolint:errcheck // Output to user, error not critical
-	_, _ = fmt.Fprintf(output, "ログファイル: %s\n", logFile)        // nolint:errcheck // Output to user, error not critical
-	_, _ = fmt.Fprintf(output, "提案ファイル: %s\n", suggestionFile) // nolint:errcheck // Output to user, error not critical
+	_, _ = fmt.Fprintln(output, hookInfo)    // nolint:errcheck // Output to user, error not critical
+	_, _ = fmt.Fprintf(output, "📋 実行中...\n") // nolint:errcheck // Output to user, error not critical
+	_, _ = fmt.Fprintf(output, "\n")         // nolint:errcheck // Output to user, error not critical
 
 	// 会話履歴の抽出
 	conversationHistory, err := ExtractConversationHistory(transcriptPath)
@@ -177,7 +176,7 @@ func run(input io.Reader, output io.Writer, getwd func() (string, error), getenv
 	}
 	_ = tempPromptFile.Close() // nolint:errcheck // File is read-only from here
 
-	// バックグラウンド実行
+	// 同期実行
 	config := &ExecutorConfig{
 		ProjectRoot:        projectRoot,
 		TempPromptFilePath: tempPromptFilePath,
@@ -186,15 +185,19 @@ func run(input io.Reader, output io.Writer, getwd func() (string, error), getenv
 		SuggestionFile:     suggestionFile,
 	}
 
-	if err := ExecuteInBackground(config); err != nil {
+	if err := ExecuteSynchronously(config); err != nil {
 		_ = os.Remove(tempPromptFilePath) // nolint:errcheck // Best-effort cleanup in error path
-		return fmt.Errorf("❌ バックグラウンド実行の開始に失敗: %w", err)
+		return fmt.Errorf("❌ 実行に失敗: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(output, "\n✅ バックグラウンドで実行を開始しました\n")                              // nolint:errcheck // Output to user, error not critical
-	_, _ = fmt.Fprintf(output, "   完了時にmacOS通知でお知らせします\n")                              // nolint:errcheck // Output to user, error not critical
-	_, _ = fmt.Fprintf(output, "   結果: cat %s\n", logFile)                              // nolint:errcheck // Output to user, error not critical
-	_, _ = fmt.Fprintf(output, "   適用: suggest-claude-md --apply %s\n", suggestionFile) // nolint:errcheck // Output to user, error not critical
+	_, _ = fmt.Fprintf(output, "\n")                                               // nolint:errcheck // Output to user, error not critical
+	_, _ = fmt.Fprintf(output, "✅ 分析が完了しました\n")                                    // nolint:errcheck // Output to user, error not critical
+	_, _ = fmt.Fprintf(output, "📄 提案ファイル: %s\n", suggestionFile)                   // nolint:errcheck // Output to user, error not critical
+	_, _ = fmt.Fprintf(output, "\n")                                               // nolint:errcheck // Output to user, error not critical
+	_, _ = fmt.Fprintf(output, "以下のコマンドで提案を適用できます：\n")                             // nolint:errcheck // Output to user, error not critical
+	_, _ = fmt.Fprintf(output, "  suggest-claude-md --apply %s\n", suggestionFile) // nolint:errcheck // Output to user, error not critical
+	_, _ = fmt.Fprintf(output, "\n")                                               // nolint:errcheck // Output to user, error not critical
+	_, _ = fmt.Fprintf(output, "詳細なログ: %s\n", logFile)                             // nolint:errcheck // Output to user, error not critical
 
 	return nil
 }
@@ -254,7 +257,7 @@ func applySuggestionFileWithInput(suggestionPath string, input io.Reader) error 
 	fmt.Println()
 
 	// 確認プロンプト
-	fmt.Print("この内容をCLAUDE.mdに追記しますか? (yes/no): ")
+	fmt.Print("この内容をCLAUDE.mdに適用しますか? (yes/no): ")
 
 	// inputから1行読み取る
 	scanner := bufio.NewScanner(input)
@@ -272,16 +275,12 @@ func applySuggestionFileWithInput(suggestionPath string, input io.Reader) error 
 		return nil
 	}
 
-	// CLAUDE.mdに追記
+	// セクションベースで挿入
 	var newContent string
 	if existingContent == "" {
 		newContent = string(suggestionContent)
 	} else {
-		// 既存の内容の末尾に改行がない場合は追加
-		if !strings.HasSuffix(existingContent, "\n") {
-			existingContent += "\n"
-		}
-		newContent = existingContent + "\n" + string(suggestionContent)
+		newContent = InsertIntoSection(existingContent, string(suggestionContent))
 	}
 
 	if err := os.WriteFile(claudeMdPath, []byte(newContent), 0o644); err != nil {

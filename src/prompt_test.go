@@ -124,9 +124,10 @@ func TestDefaultPromptContent(t *testing.T) {
 
 	mustContain := []string{
 		"CLAUDE.md更新提案",
-		"フォーマット",
-		"提案内容",
-		"理由",
+		"出力形式の重要な指示",
+		"出力例",
+		"必須要件",
+		"禁止事項",
 	}
 
 	for _, want := range mustContain {
@@ -140,9 +141,8 @@ func TestDefaultPromptContentStructure(t *testing.T) {
 	// マークダウン見出しの存在確認
 	expectedHeaders := []string{
 		"# CLAUDE.md更新提案",
-		"## フォーマット",
-		"### 提案内容",
-		"### 理由",
+		"## 出力形式の重要な指示",
+		"## 出力例",
 	}
 
 	for _, header := range expectedHeaders {

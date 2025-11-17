@@ -421,3 +421,73 @@ func TestInstallHooks_SaveSettingsError(t *testing.T) {
 		t.Logf("Got error (may vary by system): %v", err)
 	}
 }
+
+func TestSaveSettings_Success(t *testing.T) {
+	tmpDir := t.TempDir()
+	settingsPath := filepath.Join(tmpDir, "test-settings.json")
+
+	settings := &ClaudeSettings{
+		Hooks: map[string][]HookEntry{
+			"TestHook": {
+				{
+					Hooks: []HookCommand{
+						{Type: "command", Command: "test"},
+					},
+				},
+			},
+		},
+	}
+
+	err := saveSettings(settingsPath, settings)
+	if err != nil {
+		t.Fatalf("saveSettings() error = %v", err)
+	}
+
+	// ファイルが作成されたことを確認
+	if _, statErr := os.Stat(settingsPath); os.IsNotExist(statErr) {
+		t.Error("File should be created")
+	}
+
+	// JSONとして読み込めることを確認
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("Failed to read file: %v", err)
+	}
+
+	var loaded ClaudeSettings
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if loaded.Hooks["TestHook"][0].Hooks[0].Command != "test" {
+		t.Errorf("Unexpected command: %v", loaded.Hooks["TestHook"][0].Hooks[0].Command)
+	}
+}
+
+func TestAddHookIfNotExists_MultipleExistingHooks(t *testing.T) {
+	existingEntries := []HookEntry{
+		{
+			Hooks: []HookCommand{
+				{Type: "command", Command: "hook1"},
+				{Type: "command", Command: "hook2"},
+				{Type: "command", Command: "hook3"},
+			},
+		},
+	}
+
+	newHook := HookCommand{Type: "command", Command: "hook4"}
+	result := addHookIfNotExists(existingEntries, newHook)
+
+	if len(result) != 1 {
+		t.Errorf("Expected 1 entry, got %d", len(result))
+	}
+
+	if len(result[0].Hooks) != 4 {
+		t.Errorf("Expected 4 hooks, got %d", len(result[0].Hooks))
+	}
+
+	// 4番目のフックがhook4であることを確認
+	if result[0].Hooks[3].Command != "hook4" {
+		t.Errorf("Expected 4th hook to be 'hook4', got %q", result[0].Hooks[3].Command)
+	}
+}
